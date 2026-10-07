@@ -1,0 +1,24 @@
+{
+  "name": "compressviz",
+  "version": "2.0.0",
+  "description": "Διαδραστικό εργαλείο οπτικοποίησης αλγορίθμων lossless συμπίεσης δεδομένων",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "verify": "node scripts/verify.mjs",
+    "crossvalidate": "node scripts/crossvalidate.mjs",
+    "test": "npm run verify"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.12.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0"
+  }
+}
