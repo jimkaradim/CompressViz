@@ -1,242 +1,176 @@
-# CompressViz — Υλοποιήσεις & Πειραματική Αξιολόγηση
+# CompressViz - Implementations and Experimental Evaluation
 
-Κώδικας που συνοδεύει την πτυχιακή εργασία *«Ανάπτυξη Εργαλείου
-Οπτικοποίησης για Αλγόριθμους Συμπίεσης Δεδομένων»*, Τμήμα Πληροφορικής και Τηλεπικοινωνιών,
-Πανεπιστήμιο Θεσσαλίας.
+Code accompanying the BSc thesis *Development of a Visualization Tool for Data Compression Algorithms*, Department of Computer Science and Telecommunications, University of Thessaly.
 
-Υλοποιούνται πέντε οικογένειες αλγορίθμων lossless συμπίεσης, **με
-κωδικοποιητή και αποκωδικοποιητή**, και αξιολογούνται σε πρότυπο corpus
-με σύγκριση έναντι υλοποιήσεων παραγωγής.
+CompressViz implements five families of lossless compression algorithms, each with both an encoder and decoder, and evaluates them on a standard corpus against production implementations.
 
 ---
 
-## Απαιτήσεις
+## Requirements
 
-Python 3.10 ή νεότερη. Καμία εξωτερική εξάρτηση για τον πυρήνα και τα
-πειράματα — χρησιμοποιείται μόνο η τυπική βιβλιοθήκη. Το `pytest` είναι
-προαιρετικό (υπάρχει ισοδύναμος runner χωρίς εξαρτήσεις).
+Python 3.10 or newer. The core implementation and experiments use only the Python standard library. `pytest` is optional because an equivalent dependency-free test runner is included.
 
 ---
 
-## Δομή
+## Repository structure
 
-```
+~~~text
 compressviz/            [Python]
-    bitio.py         Είσοδος/έξοδος σε επίπεδο bit
-    rle.py           Run-Length Encoding (pairs + PackBits)
-    huffman.py       Canonical Huffman με σειριοποιημένη κεφαλίδα
-    lz77.py          LZ77 (τριάδες) και LZSS, με hash-chain matching
-    lzw.py           LZW με κωδικούς μεταβλητού πλάτους
-    arithmetic.py    Ακέραιος arithmetic coder με rescaling
-    adaptive.py      Προσαρμοστικό arithmetic coding (χωρίς κεφαλίδα μοντέλου)
-    baselines.py     gzip / bzip2 / xz ως σημεία αναφοράς
-benchmark.py         Πειραματική αξιολόγηση -> CSV + Markdown + LaTeX
-sweep.py             Σάρωση παραμέτρων LZ77/LZSS
-make_figures.py      Παραγωγή σχημάτων (PNG 300dpi + PDF) από τα CSV
-make_corpus.py       Συνθετικό corpus για smoke test
-run_tests.py         Έλεγχοι χωρίς εξαρτήσεις
-tests/               Ισοδύναμοι έλεγχοι για pytest
-crossvalidate.py     Παραγωγή διανυσμάτων ελέγχου -> vectors.json
+    bitio.py            Bit-level input/output
+    rle.py              Run-Length Encoding (pairs and PackBits)
+    huffman.py          Canonical Huffman with a serialized header
+    lz77.py             LZ77 triples and LZSS with hash-chain matching
+    lzw.py              LZW with variable-width codes
+    arithmetic.py       Integer arithmetic coder with rescaling
+    adaptive.py         Adaptive arithmetic coding (no model header)
+    baselines.py        gzip / bzip2 / xz reference implementations
+benchmark.py            Experimental evaluation -> CSV, Markdown and LaTeX
+sweep.py                LZ77/LZSS parameter sweep
+make_figures.py         Creates figures from CSV results (PNG and PDF)
+make_corpus.py          Synthetic corpus for smoke tests
+run_tests.py            Dependency-free validation checks
+tests/                  Equivalent pytest test suite
+crossvalidate.py        Generates validation vectors -> vectors.json
 
 js/                     [JavaScript / React]
-    src/algorithms/     Ίδιοι αλγόριθμοι, bit-συμβατοί με την Python
-    src/components/     Components διεπαφής
-    src/App.jsx         Εφαρμογή
-    scripts/verify.mjs        Έλεγχοι ορθότητας
-    scripts/crossvalidate.mjs Διασταύρωση με την Python
+    src/algorithms/     Bit-compatible implementations of the Python algorithms
+    src/components/     User-interface components
+    src/App.jsx         Application
+    scripts/verify.mjs  Correctness checks
+    scripts/crossvalidate.mjs  Cross-validation against Python
+~~~
 
-```
+Each codec exposes the same interface:
 
-Κάθε άρθρωμα εκθέτει την ίδια διεπαφή:
-
-```python
+~~~python
 compress(data: bytes, **params) -> bytes
-decompress(blob: bytes)         -> bytes
+decompress(blob: bytes) -> bytes
 header_bits(data: bytes, **params) -> int
-```
+~~~
 
-Τα ρεύματα είναι αυτοπεριγραφόμενα ως προς mode, μήκος, μοντέλο και βασικές
-παραμέτρους. Εξαίρεση αποτελεί το προαιρετικό `increment` του adaptive
-arithmetic codec: δεν αποθηκεύεται στην κεφαλίδα και ο decoder πρέπει να
-κληθεί με την ίδια τιμή (η εφαρμογή χρησιμοποιεί την προεπιλογή 32).
+Streams are self-describing with respect to mode, length, model and core parameters. The optional `increment` parameter of the adaptive arithmetic codec is not stored in the header, so the decoder must use the same value (the application uses the default of 32).
 
 ---
 
-## Αναπαραγωγή των πειραμάτων
+## Reproducing the experiments
 
-### 1. Έλεγχοι ορθότητας
+### 1. Correctness checks
 
-```bash
-python3 run_tests.py          # χωρίς εξαρτήσεις
-pytest -q                     # ισοδύναμο, αν υπάρχει pytest
-python3 tests/fuzz_roundtrip.py   # 11.662 ντετερμινιστικά stress checks
-python3 tests/validate_streams.py # απόρριψη κομμένων/μη έγκυρων streams
-python3 tests/trace_consistency.py # 448 έλεγχοι ότι τα οπτικά βήματα ταιριάζουν με τα tokens
-```
+~~~bash
+python3 run_tests.py                 # dependency-free
+pytest -q                            # equivalent, if pytest is installed
+python3 tests/fuzz_roundtrip.py      # 11,662 deterministic stress checks
+python3 tests/validate_streams.py    # rejects truncated and invalid streams
+python3 tests/trace_consistency.py   # 448 checks that visual steps match tokens
+~~~
 
-Ελέγχεται η θεμελιώδης ιδιότητα `decompress(compress(x)) == x` σε οριακές
-περιπτώσεις, σε ψευδοτυχαία δυαδικά δεδομένα, σε ψευδοτυχαίο κείμενο και σε
-δεδομένα με μακριά runs (σταθερά seeds, άρα αναπαραγώγιμα). Επιπλέον
-ελέγχονται θεωρητικές ιδιότητες: ανισότητα Kraft, το φράγμα
-`H(X) ≤ L < H(X)+1` του Huffman, και η εγγύτητα του arithmetic coder στο
-φράγμα Shannon.
+The fundamental property `decompress(compress(x)) == x` is tested on boundary cases, deterministic pseudo-random binary data and text, and inputs with long runs. The suite also checks the Kraft inequality, the Huffman bound `H(X) <= L < H(X)+1`, and the proximity of arithmetic coding to the Shannon bound.
 
-### 2. Λήψη του Canterbury Corpus
+### 2. Download the Canterbury Corpus
 
-```bash
+~~~bash
 mkdir -p corpus && cd corpus
 curl -O https://corpus.canterbury.ac.nz/resources/cantrbry.tar.gz
 tar xzf cantrbry.tar.gz && cd ..
-```
+~~~
 
 ### 3. Benchmark
 
-```bash
+~~~bash
 python3 benchmark.py corpus/ --repeats 5 --outdir results
-```
+~~~
 
-Παράγει `results/benchmark_results.csv`, `results/tables.md`,
-`results/tables.tex`. **Οι πίνακες της εργασίας πρέπει να προέρχονται από
-αυτά τα αρχεία**, όχι από χειροκίνητη αντιγραφή.
+This generates `results/benchmark_results.csv`, `results/tables.md`, and `results/tables.tex`. Thesis tables should be generated from these files rather than copied manually.
 
-### 4. Εργαλείο οπτικοποίησης
+### 4. Visualization tool
 
-Η κύρια εφαρμογή της εργασίας είναι πλέον Python/Streamlit και χρησιμοποιεί
-απευθείας τους επαληθευμένους Python codecs:
+The primary application is implemented in Python/Streamlit and uses the verified Python codecs directly:
 
-```bash
+~~~bash
 python -m pip install -r requirements.txt
 streamlit run streamlit_app.py
-python3 tests/ui_smoke.py     # headless έλεγχος ότι το UI φορτώνει
-```
+python3 tests/ui_smoke.py
+~~~
 
-Περιλαμβάνει εισαγωγή κειμένου ή αρχείου, Flow View, step-by-step trace,
-Bitstream View, dashboard συχνοτήτων και μετρικών, συγκριτική προβολή και
-εξαγωγή JSON/CSV/bitstream. Για μεγάλες εισόδους το trace περιορίζεται σε
-ελεγχόμενο πλήθος βημάτων, ενώ οι μετρικές υπολογίζονται σε ολόκληρο το αρχείο.
-Επειδή η συγκριτική προβολή εκτελεί και τον στατικό arithmetic codec, η
-τρέχουσα εφαρμογή δέχεται έως 4.194.303 bytes και εμφανίζει σαφές μήνυμα για
-μεγαλύτερη είσοδο.
+It supports text or file input, a flow view, step-by-step traces, bitstream view, frequency and metrics dashboards, comparison mode, and JSON/CSV/bitstream export. For large inputs, traces are capped while metrics still cover the complete input. Comparison mode also runs the static arithmetic codec, so the current application accepts inputs up to 4,194,303 bytes and displays a clear message for larger files.
 
-Η εφαρμογή React διατηρείται στον κατάλογο `js/` ως εναλλακτικό πρωτότυπο και
-ως ανεξάρτητη υλοποίηση για διασταύρωση των παραγόμενων bytes.
+#### Alternative React prototype
 
-#### Εναλλακτικό πρωτότυπο React
-
-```bash
+~~~bash
 cd js
 npm install
-npm run verify        # έλεγχοι ορθότητας των JS υλοποιήσεων
-npm run dev           # η εφαρμογή στο http://localhost:5173
-```
+npm run verify
+npm run dev
+~~~
 
-### 5. Διασταύρωση Python ↔ JavaScript
+The React application is retained as an alternative prototype and as an independent implementation for cross-validating the generated bytes.
 
-```bash
+### 5. Python <-> JavaScript cross-validation
+
+~~~bash
 python3 crossvalidate.py
 node js/scripts/crossvalidate.mjs
-```
+~~~
 
-Επιβεβαιώνει ότι οι δύο υλοποιήσεις παράγουν **ταυτόσημα bytes** για 24
-διανύσματα ελέγχου × 8 codecs, με σύγκριση SHA-256. Χωρίς αυτόν τον
-έλεγχο, τα νούμερα του εργαλείου και τα νούμερα των πειραμάτων δεν
-εγγυάται τίποτε ότι αφορούν τον ίδιο αλγόριθμο.
+This verifies that both implementations generate identical bytes for 24 validation vectors across 8 codecs, using SHA-256 comparisons.
 
-### 6. Σάρωση παραμέτρων LZ77
+### 6. LZ77 parameter sweep
 
-```bash
+~~~bash
 python3 sweep.py corpus/alice29.txt --outdir results
-```
+~~~
 
-### 7. Σχήματα για την εργασία
+### 7. Thesis figures
 
-```bash
+~~~bash
 python3 make_figures.py --results results --outdir figures
-```
+~~~
 
-Παράγει πέντε σχήματα σε PNG (300 dpi, για Word) και PDF (διανυσματικό,
-για LaTeX), αποκλειστικά από τα CSV. Καμία τιμή δεν πληκτρολογείται στο
-script: αν αλλάξει το πείραμα, αλλάζουν αυτόματα και τα σχήματα.
+The command produces five figures directly from CSV data: compression ratio by algorithm and data type, the LZ77 sweep, header overhead, encode/decode time, and entropy-coder distance from the Shannon bound. PNG output is 300 dpi for Word; PDF output is vector-based for LaTeX.
 
-| Σχήμα | Τι δείχνει |
-|---|---|
-| `fig1_ratio_by_algorithm` | Λόγος συμπίεσης ανά αλγόριθμο και τύπο δεδομένων, με το gzip ως γραμμή αναφοράς |
-| `fig2_lz77_sweep` | Λόγος ως προς log₂(W)· το κρίσιμο σημείο όπου ο LZ77 σταματά να επεκτείνει |
-| `fig3_header_overhead` | Κόστος μετάδοσης μοντέλου ως ποσοστό του συνόλου, ανά μέγεθος αρχείου |
-| `fig4_encode_decode_time` | Ασυμμετρία συμπίεσης/αποσυμπίεσης, ms ανά MB |
-| `fig5_vs_shannon` | Υπέρβαση των εντροπικών κωδικοποιητών έναντι του φράγματος Shannon |
+### 8. Smoke test without the corpus
 
-### 8. Smoke test χωρίς το corpus
-
-```bash
+~~~bash
 python3 make_corpus.py
 python3 benchmark.py corpus_synthetic/ --repeats 3
-```
+~~~
 
 ---
 
-## Μεθοδολογία μέτρησης
+## Measurement methodology
 
-Τέσσερις επιλογές που καθορίζουν την εγκυρότητα των αποτελεσμάτων:
+Four design decisions ensure valid and reproducible results:
 
-**Μετράται το πλήρες αρχείο.** Το αναφερόμενο μέγεθος είναι κεφαλίδα συν
-ωφέλιμο φορτίο, δηλαδή αυτό που θα γραφόταν στον δίσκο. Ο Huffman και το
-Arithmetic Coding πρέπει να μεταδώσουν το μοντέλο τους στον αποκωδικοποιητή·
-αγνοώντας το κόστος αυτό, η σύγκριση με τον LZW — που δεν χρειάζεται
-κεφαλίδα, γιατί ο δέκτης ανακατασκευάζει το λεξικό — γίνεται άνιση. Τα δύο
-μεγέθη αναφέρονται και χωριστά στο CSV.
+1. **The full file is measured.** Reported size is header plus payload - the bytes that would actually be written to disk. Huffman and arithmetic coding must transmit their model; ignoring that cost makes a comparison with LZW unfair. Both values are reported separately in the CSV.
+2. **Every measurement is validated.** Before recording a row, a round trip is executed. If it fails, the row is marked and the benchmark exits with an error.
+3. **Timing uses medians.** Each measurement is repeated five times after a warm-up run. Median and interquartile range are reported separately for encoding and decoding. Absolute times depend on the machine and are meaningful only as a relative comparison within the same run.
+4. **Limitations are documented.** LZSS uses greedy parsing; zlib lazy matching typically achieves 3-5% better results. `MAX_CHAIN = 64` limits hash-chain search depth, trading compression quality for time. LZW freezes its dictionary when full instead of emitting a GIF-style CLEAR code. These choices make the gzip comparison stricter.
 
-**Κάθε μέτρηση επαληθεύεται.** Πριν καταγραφεί μια γραμμή, εκτελείται
-round-trip. Αν αποτύχει, η γραμμή σημειώνεται και το benchmark τερματίζει
-με κωδικό σφάλματος.
-
-**Οι χρόνοι είναι διάμεσοι.** Κάθε μέτρηση επαναλαμβάνεται (default 5
-φορές) μετά από μία εκτέλεση προθέρμανσης· αναφέρονται διάμεσος και
-ενδοτεταρτημοριακό εύρος, χωριστά για συμπίεση και αποσυμπίεση. Οι
-απόλυτοι χρόνοι εξαρτώνται από το μηχάνημα και έχουν νόημα μόνο ως σχετική
-σύγκριση μεταξύ αλγορίθμων στο ίδιο τρέξιμο.
-
-**Γνωστοί περιορισμοί.** Ο LZSS χρησιμοποιεί greedy parsing: επιλέγει
-πάντα τη μακρύτερη διαθέσιμη αντιστοίχιση. Το lazy matching του zlib
-δίνει τυπικά 3–5% καλύτερα αποτελέσματα. Επιπλέον το `MAX_CHAIN = 64`
-περιορίζει το βάθος αναζήτησης στις hash chains, ανταλλάσσοντας ποιότητα
-με χρόνο. Ο LZW παγώνει το λεξικό όταν γεμίσει, αντί να εκπέμπει CLEAR
-code και να ξεκινά από την αρχή όπως το GIF. Και τα τρία πρέπει να
-δηλωθούν στην εργασία: επηρεάζουν τα αποτελέσματα προς τα κάτω και
-καθιστούν τη σύγκριση με το gzip αυστηρότερη από όσο χρειάζεται.
-
-**Υπάρχει σημείο αναφοράς.** Τα gzip, bzip2 και xz τρέχουν στα ίδια
-δεδομένα. Χωρίς αυτά, ένας λόγος συμπίεσης δεν είναι ερμηνεύσιμος: δεν
-φαίνεται αν είναι καλός. Αναφέρεται επίσης το φράγμα Shannon `H(X)·n` ως
-θεωρητικό κάτω όριο για μοντέλα μηδενικής τάξης.
+gzip, bzip2 and xz run on the same data as reference points, while `H(X) * n` is reported as the theoretical lower bound for zero-order models.
 
 ---
 
-## Διορθώσεις έναντι της αρχικής υλοποίησης
+## Improvements over the initial implementation
 
-| # | Πρόβλημα | Διόρθωση |
+| # | Issue | Correction |
 |---|---|---|
-| 1 | Δεν υπήρχε κανένας αποκωδικοποιητής· η ιδιότητα lossless δεν ελεγχόταν ποτέ | Πλήρεις αποκωδικοποιητές και για τους πέντε αλγορίθμους, με αυτόματο έλεγχο round-trip |
-| 2 | Ο RLE δεν ήταν αντιστρέψιμος: `"aa3bb"` και `"2a3bb"` έδιναν και τα δύο `"2a32b"` | Δύο ορθές παραλλαγές: ζεύγη `(πλήθος, σύμβολο)` και PackBits |
-| 3 | Το Arithmetic Coding δεν ήταν υλοποιημένο — επέστρεφε `ceil(H·n)+2`, δηλαδή το ίδιο το φράγμα Shannon, κάνοντας το συμπέρασμα κυκλικό | Ακέραιος κωδικοποιητής 24 bits με rescaling κατά Witten–Neal–Cleary |
-| 4 | Ο Huffman και το Arithmetic δεν χρέωναν το κόστος του μοντέλου | Σειριοποιημένες κεφαλίδες, μετρώνται στο σύνολο |
-| 5 | Ο LZ77 χρέωνε 3 bits για πεδίο μήκους που έφτανε την τιμή 8 (απαιτεί 4) | Τα πλάτη πεδίων υπολογίζονται από τις παραμέτρους |
-| 6 | Το μέγεθος του LZ77 εκτιμώνταν ως `tokens × 16` αντί να μετριέται | Πραγματικό bit packing |
-| 7 | Ο LZW χρησιμοποιούσε σταθερά 12 bits από την αρχή | Κωδικοί μεταβλητού πλάτους 9→max, όπως σε GIF και `compress` |
-| 8 | Ο Huffman παρήγαγε συμβολοσειρά από `'0'`/`'1'`, δηλαδή 8 bits ανά bit | Πραγματικά bytes μέσω `BitWriter` |
-| 9 | Μία μέτρηση χρόνου, χωρίς προθέρμανση, χωρίς αποσυμπίεση | Επαναλήψεις, διάμεσος, IQR, χωριστά enc/dec |
-| 10 | Ένα μόνο αρχείο, κανένα baseline | Ολόκληρο corpus, συν gzip/bzip2/xz και φράγμα Shannon |
-| 11 | Το `W=20` του LZ77 δικαιολογούνταν ως «επίδειξη», με αποτέλεσμα επέκταση 113% | Συστηματική σάρωση `W ∈ [16, 32768]` (`sweep.py`) και προσθήκη LZSS |
-| 12 | Οι πίνακες του κειμένου δεν συμφωνούσαν με το CSV σε καμία τιμή | Οι πίνακες παράγονται αυτόματα από τα ίδια δεδομένα |
-| 13 | Δεν υπήρχαν σχήματα για το Κεφάλαιο 5 | `make_figures.py`: πέντε σχήματα απευθείας από τα CSV |
-| 14 | Το επιχείρημα για το κόστος των κεφαλίδων δεν είχε κατάληξη | Προσαρμοστικό arithmetic coding: μηδενική κεφαλίδα μοντέλου |
+| 1 | No decoders; losslessness was never tested. | Complete decoders for all five algorithm families and automatic round-trip tests. |
+| 2 | Text RLE was ambiguous. | Two correct variants: count-symbol pairs and PackBits. |
+| 3 | Arithmetic coding was not implemented. | 24-bit integer arithmetic coder with Witten-Neal-Cleary rescaling. |
+| 4 | Huffman and arithmetic coding ignored model cost. | Serialized headers included in the total size. |
+| 5 | LZ77 used an insufficient bit width for its length field. | Field widths are derived from parameters. |
+| 6 | LZ77 size was estimated rather than measured. | Actual bit packing. |
+| 7 | LZW always used 12-bit codes. | Variable-width 9-to-max codes, as in GIF and `compress`. |
+| 8 | Huffman emitted strings of `0` and `1`. | Actual bytes via `BitWriter`. |
+| 9 | One timing measurement, with no warm-up or decoding. | Repetitions, median, IQR, and separate encode/decode timing. |
+| 10 | One input file and no baselines. | Full corpus plus gzip/bzip2/xz and the Shannon bound. |
+| 11 | LZ77 used `W=20`, resulting in 113% expansion. | Systematic `W in [16, 32768]` sweep and addition of LZSS. |
+| 12 | Thesis tables did not match the CSV values. | Tables are generated automatically from the same data. |
+| 13 | No Chapter 5 figures. | `make_figures.py` creates five figures directly from CSV files. |
+| 14 | Header-overhead discussion had no resolution. | Adaptive arithmetic coding with no model header. |
 
-Ο έλεγχος `test_naive_text_rle_is_ambiguous` διατηρείται σκόπιμα: τεκμηριώνει
-γιατί απορρίφθηκε η αρχική μορφή RLE και μπορεί να αναφερθεί στην εργασία ως
-παράδειγμα του γιατί η επαλήθευση round-trip είναι απαραίτητη.
+The `test_naive_text_rle_is_ambiguous` test is intentionally retained. It documents why the original RLE format was rejected and illustrates why round-trip verification is essential.
 
----
-
-## Άδεια
+## License
 
 MIT.
